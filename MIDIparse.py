@@ -2,7 +2,6 @@
 import argparse
 import os
 import sys
-import time
 
 
 def parse_args():
@@ -37,6 +36,23 @@ def parse_bytes(fd,bytes_count):
     #    raise Exception
     return int.from_bytes(something,byteorder="big",signed=False)
 
+def parse_little_bytes(fd,bytes_count):
+    """ reads from the file descriptor an amount of bytes
+    Arguments:
+        fd(BufferedReader): the file descriptor
+        bytes_count(int): the amount of bytes to read
+
+    Returns:
+        int: the int value read in big endian
+    
+    """
+    something = fd.read(bytes_count)
+    #print(something)
+    #if something is b'':
+    #    raise Exception
+    return int.from_bytes(something,byteorder="little",signed=False)
+
+
 def parse_header(file_descriptor):
     """ reads the header chunk in a MIDI file.
         Currently can only read format 0 MIDI files
@@ -58,7 +74,7 @@ def parse_header(file_descriptor):
     # if ntrks != 1:
     #     print(f"parse error: The MIDI file contains {ntrks} tracks despite being format 0 (can only have 1 track)")
     #     sys.exit(1)
-    print (f'ntrks {ntrks}')
+    #print (f'ntrks {ntrks}')
     division = parse_bytes(file_descriptor,2)
     if division & 0x800 == 0:
         #print("ticks per quarter, yay!")
@@ -87,10 +103,10 @@ def parse_length(fd):
          # print(f"byt_length : {byte}")
     return length
 
-def make_play_note(key_note,prepro_stack,master_clock):
+def make_play_note(key_note,prepro_stack,channel,master_clock):
     endtime = master_clock
     for i in prepro_stack:
-        if i[1] == key_note:
+        if i[1] == key_note and i[4] == channel:
             duration = endtime - i[0]
             ret = i
             ret[3] = duration
@@ -187,8 +203,9 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
         elif ((event_type >> 4) == 0x8): # 1000nnnn -> Note Off
             key_note = parse_bytes(fd,1)
             velocity = parse_bytes(fd,1)
+            channel = (event_type & 0xF)
             #track_length -=2
-            play_note = make_play_note(key_note,prepro_stack,master_clock)
+            play_note = make_play_note(key_note,prepro_stack,channel,master_clock)
             if play_note is not None:
                 (starttime,key,velocity,duration,channel) = play_note
             midi_channel[channel].append(f"starttime {starttime}, PlayNote, key_note {key_note}, velocity {velocity}, duration {duration}")
@@ -200,7 +217,7 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
             channel = (event_type & 0xF)
             #track_length -=2
             if velocity == 0:
-                play_note= make_play_note(key_note,prepro_stack,master_clock)
+                play_note= make_play_note(key_note,prepro_stack,channel,master_clock)
                 if play_note is not None:
                     (starttime,key,velocity,duration,channel) = play_note
                 midi_channel[channel].append(f"starttime {starttime}, PlayNote, key_note {key_note}, velocity {velocity}, duration {duration}")
@@ -225,7 +242,7 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
             last_event = "ControlChange"
             last_channel = event_type & 0xF # not sure if event_type is the same after if clause
         elif ((event_type >> 4) == 0xC): #1100nnnn -> Program Change
-            controller_number = parse_bytes(fd,1)
+            controller_number = parse_little_bytes(fd,1)
             #parse_bytes(fd,1) # thebyte is unused???
             #track_length -=2
             midi_channel[(event_type & 0xF)].append(f"starttime {master_clock}, ProgramChange, controller_number {controller_number}")
@@ -251,7 +268,7 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
             match last_event:
                 case "NoteOff":
                     second_part = parse_bytes(fd,1)
-                    play_note= make_play_note(first_part,prepro_stack,master_clock)
+                    play_note= make_play_note(first_part,prepro_stack,last_channel,master_clock)
                     if play_note is not None:
                         (starttime,key,velocity,duration,channel) = play_note
                         midi_channel[channel].append(f"starttime {starttime}, PlayNote, key_note {first_part}, velocity {velocity}, duration {duration}")
@@ -259,7 +276,7 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
                     second_part = parse_bytes(fd,1)
                     #track_length -=1
                     if second_part == 0:
-                        play_note = make_play_note(first_part,prepro_stack,master_clock)
+                        play_note = make_play_note(first_part,prepro_stack,last_channel,master_clock)
                         if play_note is not None:
                             (starttime,key,velocity,duration,channel) = play_note
                             midi_channel[channel].append(f"starttime {starttime}, PlayNote, key_note {first_part}, velocity {velocity}, duration {duration}")
@@ -334,8 +351,6 @@ def main():
         try:
             position += 4
             nb_tracks,division = parse_header(file) # verifies the MIDI correctness (format 0,one track) and returns the division (ticks per quarter note)
-            print(f'tpqn {division}')
-            print('')
             position += 10
             midi_channel = [ [],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]] # 17 lists: one for each 16 channel + the 17th -> stores Tempo parameters.
             prepro_stack = []
@@ -346,6 +361,13 @@ def main():
             for i in range(nb_tracks):
                 midi_channel,prepro_stack = parse_track(file,position,midi_channel,prepro_stack)
                 #print("\n\n NEW_TRACK \n\n")
+            nb_trks = 0
+            for elem in midi_channel:
+                if len(elem)> 0:
+                    nb_trks += 1
+            print(f'ntrks {nb_trks}')
+            print(f'tpqn {division}')
+            print('')
             for statements in midi_channel[16]:
                 print(statements)
             for i in range(16):
@@ -357,6 +379,7 @@ def main():
                 ordered_list = zip(list,midi_channel[i])
                 midi_sorted = [x for _, x in sorted(ordered_list)]
                 midi_channel[i] = midi_sorted
+
             for j in range(16):
                 print('')
                 for statements in midi_channel[j]:
