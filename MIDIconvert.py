@@ -88,8 +88,8 @@ def generate_song_chunk(file_descriptor,midi_descriptor,nb_channel):
         file_descriptor.write(b'\xB0\xFF\xFF\xFF')
         file_descriptor.write(b'\x01\x00')
         nbtrks,tpqn = parse_header(midi_descriptor)
-        file_descriptor.write(b'\x30\x00') # usually 48 ticks per second. although not sure if correct everytime...
-        #file_descriptor.write(tpqn.to_bytes(2,'little')) # ticks per quarter note ????
+        #file_descriptor.write(b'\x30\x00') # usually 48 ticks per second. although not sure if correct everytime...
+        file_descriptor.write(tpqn.to_bytes(2,'little')) # ticks per quarter note ????
         file_descriptor.write(b'\x01\xFF')
         file_descriptor.write(nbtrks.to_bytes(1,'little'))
         # print(nb_channel)
@@ -112,7 +112,7 @@ def add_wait_time(file,length,factor,last_pause,position):
         file.write(b'\x90') # repeatLastPause
         position += 1
         return position,last_pause
-    value = math.floor(value / factor) # Convert MIDI ticks to SMD?
+    value = math.ceil(value / factor) # Convert MIDI ticks to SMD?
     match value: # Try fixed Duration Pause
         # case 96: # 0x80
         #     file.write(b'\x80')
@@ -215,19 +215,33 @@ def calculate_bpm(micro_per_quartick): #MIDI uses microseconds per quarter tick
     bpm = 60/secs
     return int(bpm)
 
-
 SOUNDFONT = {
-    0:0x7F, 1:-1, 2:-1, 3:-1, 4:-1, 5:-1, 6:-1, 7:-1, 8:-1, 9:-1, 10:-1, 11:-1,
-    12 :0, 13:0, 14:0, 15:15, 16:0, 17:0, 18:0, 19:0, 20:0, 21:0, 22:0, 23:23,
-    24 :1, 25:0x44, 26:1, 27:1, 28:1, 29:1, 30:1, 31:31, 32:1, 33:1, 34:1, 35:35,
-    36 :2, 37:2, 38:2, 39:2, 40:2, 41:2, 42:2, 43:2, 44:2, 45:2, 46:2, 47:2,
-    48 :0x1F, 49:3, 50:3, 51:3, 52:3, 53:3, 54:3, 55:3, 56:3, 57:3, 58:3, 59:3,
-    60 :4, 61:0x17, 62:4, 63:4, 64:4, 65:4, 66:4, 67:4, 68:68, 69:4, 70:4, 71:4,
-    72 :72, 73:0x5F, 74:74, 75:75, 76:5, 77:5, 78:5, 79:5, 80:0x60, 81:5, 82:0x63, 83:5,
-    84 :6, 85:-1, 86:6, 87:6, 88:6, 89:6, 90:6, 91:6, 92:6, 93:6, 94:94, 95:95,
-    96 :96, 97:7, 98:7, 99:99, 100:7, 101:7, 102:7, 103:7, 104:7, 105:7, 106:7, 107:7,
+    0:0x1f, 1:-1, 2:-1, 3:-1, 4:-1, 5:-1, 6:0x0B, 7:-1, 8:-1, 9:-1, 10:-1, 11:-1,
+    12 :0, 13:0, 14:0, 15:0x0F, 16:0, 17:-1, 18:0, 19:0x1f, 20:0, 21:0, 22:0, 23:0x17,
+    24 :1, 25:-1, 26:1, 27:1, 28:1, 29:-1, 30:1, 31:0x1F, 32:-1, 33:-1, 34:1, 35:0x23,
+    36 :2, 37:-1, 38:2, 39:2, 40:2, 41:2, 42:2, 43:0x1F, 44:2, 45:2, 46:2, 47:0x0B,
+    48 :0x64, 49:3, 50:0x1c, 51:3, 52:-1, 53:3, 54:3, 55:3, 56:3, 57:3, 58:0x1c, 59:3,
+    60 :4, 61:-1, 62:4, 63:4, 64:4, 65:4, 66:4, 67:4, 68:0x44, 69:4, 70:4, 71:4,
+    72 :0x5F, 73:-1, 74:0x4A, 75:0x4B, 76:5, 77:5, 78:5, 79:5, 80:-1, 81:5, 82:-1, 83:5,
+    84 :6, 85:-1, 86:6, 87:6, 88:6, 89:6, 90:6, 91:6, 92:6, 93:6, 94:0x5E, 95:0x5F,
+    96 :0x60, 97:7, 98:7, 99:0x63, 100:7, 101:7, 102:7, 103:7, 104:7, 105:7, 106:7, 107:7,
     108 :8, 109:8, 110:8, 111:8, 112:8, 113:8, 114:8, 115:8, 116:8, 117:8, 118:8, 119:8,
-    120 :9, 121:9, 122:9, 123:9, 124:9, 125:9, 126:9, 127:127 
+    120 :9, 121:9, 122:9, 123:9, 124:9, 125:9, 126:9, 127:0x7F 
+
+}
+
+OLD_SOUNDFONT = {
+    0:0x1f, 1:-1, 2:-1, 3:-1, 4:-1, 5:-1, 6:0x0B, 7:-1, 8:-1, 9:-1, 10:-1, 11:-1,
+    12 :0, 13:0, 14:0, 15:0x0F, 16:0, 17:-1, 18:0, 19:0x1f, 20:0, 21:0, 22:0, 23:0x17,
+    24 :1, 25:-1, 26:1, 27:1, 28:1, 29:-1, 30:1, 31:0x1F, 32:-1, 33:-1, 34:1, 35:0x23,
+    36 :2, 37:-1, 38:2, 39:2, 40:2, 41:2, 42:2, 43:0x1F, 44:2, 45:2, 46:2, 47:0x0B,
+    48 :0x64, 49:3, 50:0x1c, 51:3, 52:-1, 53:3, 54:3, 55:3, 56:3, 57:3, 58:0x1c, 59:3,
+    60 :4, 61:-1, 62:4, 63:4, 64:4, 65:4, 66:4, 67:4, 68:0x44, 69:4, 70:4, 71:4,
+    72 :0x5F, 73:-1, 74:0x4A, 75:0x4B, 76:5, 77:5, 78:5, 79:5, 80:-1, 81:5, 82:-1, 83:5,
+    84 :6, 85:-1, 86:6, 87:6, 88:6, 89:6, 90:6, 91:6, 92:6, 93:6, 94:0x5E, 95:0x5F,
+    96 :0x60, 97:7, 98:7, 99:0x63, 100:7, 101:7, 102:7, 103:7, 104:7, 105:7, 106:7, 107:7,
+    108 :8, 109:8, 110:8, 111:8, 112:8, 113:8, 114:8, 115:8, 116:8, 117:8, 118:8, 119:8,
+    120 :9, 121:9, 122:9, 123:9, 124:9, 125:9, 126:9, 127:0x7F 
 
 }
 
@@ -245,6 +259,39 @@ NOTES = {
     108 :[0x0,9], 109:[0x1,9], 110:[0x2,9], 111:[0x3,9], 112:[0x4,9], 113:[0x5,9], 114:[0x6,9], 115:[0x7,9], 116:[0x8,9], 117:[0x9,9], 118:[0xA,9], 119:[0xB,9],
     120 :[0x0,10], 121:[0x1,10], 122:[0x2,10], 123:[0x3,10], 124:[0x4,10], 125:[0x5,10], 126:[0x6,10], 127:[0x7,10] 
 
+}
+
+EVENTS = {  0x90: 0, 0x91: 1, 0x92 : 1, 0x93: 2,
+            0x94: 3, 0x95 : 1, 0x98: 0, 0x99: 0,
+            0xA0 : 1, 0xA1: 1, 0xA4: 1, 0xA5 : 1,# SetTempo is intentionnaly putted twice here
+            0xAB: 0, 0xAC: 1, 0xCB : 0, 0xD7: 2,
+            0xE0: 1, 0xE3: 1,0xE8 : 1, 0xF8: 0,
+    # Unknown but used
+            0x9C: 1, 0x9D: 1, 0x9E: 1, 0xA8: 2,
+            0xA9: 1, 0xAA: 1, 0xAF: 3, 0xB0: 0,
+            0xB1: 1, 0xB2: 1, 0xB3: 1, 0xB4: 2,
+            0xB5: 1, 0xB6: 1, 0xBC: 1, 0xBE: 2,
+            0xBF: 1, 0xC0: 1, 0xC3: 1, 0xD0: 2,
+            0xD1: 1, 0xD2: 1, 0xD3: 2, 0xD4: 3,
+            0xD5: 2, 0xD6: 2, 0xD8: 2, 0xDB: 1,
+            0xDC: 5, 0xDD: 4, 0xDF: 1, 0xE1: 1,
+            0xE2: 3, 0xE4: 5, 0xE5: 4, 0xE7: 1,
+            0xE9: 1, 0xEA: 3, 0xEC: 5, 0xED: 4,
+            0xEF: 1, 0xF0: 5, 0xF1: 4, 0xF2: 2,
+            0xF3: 3, 0xF6: 1,
+    # Any other 0x (0x90 -> 0xFF) are considered INVALID
+            0x96: 0, 0x97: 0, 0x9A: 0, 0x9B: 0,
+            0x9F: 0, 0xA2: 0, 0xA3: 0, 0xA6: 0,
+            0xA7: 0, 0xAD: 0, 0xAE: 0, 0xB7: 0,
+            0xB8: 0, 0xB9: 0, 0xBA: 0, 0xBB: 0,
+            0xBD: 0, 0xC1: 0, 0xC2: 0, 0xC4: 0,
+            0xC5: 0, 0xC6: 0, 0xC7: 0, 0xC8: 0,
+            0xC9: 0, 0xCA: 0, 0xCC: 0, 0xCD: 0,
+            0xCE: 0, 0xCF: 0, 0xD9: 0, 0xDA: 0,
+            0xDE: 0, 0xE6: 0, 0xEB: 0, 0xEE: 0,
+            0xF4: 0, 0xF5: 0, 0xF7: 0, 0xF9: 0,
+            0xFA: 0, 0xFB: 0, 0xFC: 0, 0xFD: 0,
+            0xFE: 0, 0xFF: 0
 }
 
 
@@ -279,6 +326,7 @@ def convert_note(file,midi_note,current_octave,position):
         return position,note,2,octave
 
 def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
+    print(tpqn)
     smb_descriptor.write(b'\x74\x72\x6B\x20') # trk
     smb_descriptor.write(b'\x00\x00\x00\x01')
     smb_descriptor.write(b'\x04\xFF\x00\x00')
@@ -295,9 +343,11 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
 
     position =20
     test = 0
-    factor = tpqn/48 # Really not sure: tpqn -> MIDI ticks per quarter note
+    factor = 1#tpqn/48 # Really not sure: tpqn -> MIDI ticks per quarter note
                      # 48 -> Ticks per quarter note of SMD.
                      # divide MIDI delta-time by factor for ticks in SMD
+    # print('##factor##')
+    # print(factor)
     last_pause = -1
     current_octave = -2
 
@@ -310,6 +360,7 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
         test += 1
         line = midi_descriptor.readline()
         if len(line) == 0 or line == '\n':
+            print(f'stopped by {line}')
             break;
         # if line == "\n":
         #     midi_descriptor.readline()
@@ -339,6 +390,10 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
                     case 'Set Tempo': # Tempo
                         bpm = calculate_bpm(int(parts[3][5:]))# SetTempo
                         smb_descriptor.write(b'\xA4')
+                        cpt = 0
+                        while bpm >= 256:
+                            bpm = math.floor(bpm /2)
+                            cpt += 1
                         smb_descriptor.write(bpm.to_bytes(1,'little'))
                         position += 2
                     case _:
@@ -368,7 +423,7 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
                 position += 4
                 smb_descriptor.write(b'\xAC') # SetProgram
                 value = int(parts[2][18:])
-                swd_soundfont = value#SOUNDFONT.get(value)
+                swd_soundfont =SOUNDFONT.get(value)
                 smb_descriptor.write(swd_soundfont.to_bytes(1,'little'))
                 position+=2
                 #continue #Technically SWD???
@@ -384,32 +439,37 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
                 velocity = int(parts[3][9:])
                 midi_note = int(parts[2][9:])
                 position,note,octave_mod,new_octave = convert_note(smb_descriptor,midi_note,current_octave,position)
+                # if current_octave == -2:
+                #     print(new_octave)
                 current_octave = new_octave
-                print(current_octave)
                 if(current_octave > 9 or current_octave <-1):
                     print("The octave value went out of bounds")
                     sys.exit(1)
                 #/!\current octave is never changed#
 
 
-                key_down = int(int(parts[4][9:])/factor)
+                key_down = int(parts[4][9:])#int(math.ceil(int(parts[4][9:])/factor))
+                print('###',int(parts[4][9:]))
+                # key_down = key_down+1
+                #print(key_down)
                 if len(hex(key_down))> 8: # That's a problem (> 0xyyyyyy)
                     print("Problematic: the key_hold duration is above what the .smd standard can muster.(?)")
                     sys.exit(1)
                 elif len(hex(key_down)) > 6: # > 0xyyyy
-                    key_duration = key_down.to_bytes(3,'little')
+                    key_duration = key_down.to_bytes(3,'big')
                     nb_param = 0x03
                 elif len(hex(key_down)) > 4:# > 0xyy
-                    key_duration = key_down.to_bytes(2,'little')
+                    key_duration = key_down.to_bytes(2,'big')
                     nb_param = 0x02
                 elif key_down != 0:
-                    key_duration = key_down.to_bytes(1,'little')
+                    key_duration = key_down.to_bytes(1,'big')
                     nb_param = 0x01
                 else:
                     key_duration = 0
                     nb_param = 0x00
-
-                
+                if key_down >7660:
+                    print('wtf!!')
+                    print(nb_param,key_down)
                 note_data = (note | (octave_mod << 4) | (nb_param << 6))
                 #print(note_data)
                 smb_descriptor.write(velocity.to_bytes(1,'little'))
@@ -454,7 +514,7 @@ def main():
         parse_bytes(patch,128)
         length += 128
         track = parse_bytes(patch,4)
-        print(track.to_bytes(4,'big'))
+        #print(track.to_bytes(4,'big'))
         length += 4
         while(track == 0x74726b20):
             parse_bytes(patch,12)
@@ -465,15 +525,26 @@ def main():
             while(byte != 0x98):
                 byte = parse_bytes(patch,1)
                 track_length+=1
+                if byte <= 0x7F:
+                    note_data = parse_bytes(patch,1)
+                    nb_param = note_data >> 6
+                    track_length+= nb_param + 1
+                    parse_bytes(patch,nb_param)
+                elif byte >= 0x90:
+                    to_parse = EVENTS.get(byte)
+                    parse_bytes(patch,to_parse)
+                    track_length+= to_parse
             length_list.append(track_length)
             length += track_length
             padding = (4 - (length % 4))% 4
+            #print('##padding',length,padding)
             parse_bytes(patch,padding)
             length += padding
             track = parse_bytes(patch,4)
             length += 4
-    print(length)
-    print(length_list)
+            #print(hex(track))
+    # print(length)
+    # print(length_list)
     length +=12 # 12 byte for eoc chunk (without magic already read.)
     with open(args.output, 'rb+') as fix_length:
         parse_bytes(fix_length,8)

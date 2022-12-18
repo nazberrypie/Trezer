@@ -231,7 +231,7 @@ def main():
     with open(args.SMD,"rb") as file:
         magic = file.read(4)
         if magic != b'smdl':
-            print("parse errpr: The magic number read indicates the file is not of the .smd format")
+            print("parse error: The magic number read indicates the file is not of the .smd format")
             sys.exit(1)
         try:
             parse_header(file)

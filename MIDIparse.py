@@ -191,7 +191,9 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
             meta_data = parse_bytes(fd,meta_length)
             if string_flag == True:
                 meta_data = hex(meta_data)
-                meta_data = bytearray.fromhex(meta_data[2:]).decode()
+                #print("###")
+                #print(meta_data)
+                #meta_data = bytearray.fromhex(meta_data[2:]).decode()
             #track_length -= meta_length
             value = 16 if event == 'Set Tempo' or event == 'Time Signature' or event == 'KeySignature' else 0
             midi_channel[value].append(f"starttime {master_clock}, MetaMessage, type {event}, data {meta_data}")
@@ -381,9 +383,10 @@ def main():
                 midi_channel[i] = midi_sorted
 
             for j in range(16):
-                print('')
-                for statements in midi_channel[j]:
-                    print(statements)
+                if len(midi_channel[j]) != 0:
+                    print('')
+                    for statements in midi_channel[j]:
+                        print(statements)
 
         except Exception as e:
             print( "an exception has occured" + e)
