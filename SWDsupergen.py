@@ -26,10 +26,9 @@ def parse_args():
 
 class Preset:
 
-    def __init__(self,preset_hex,data,len):
-        self.preset_hex = int(preset_hex,16)
+    def __init__(self,data,len):
         self.data = data
-        self.len = len
+        self.len = len +1
 
 
 
@@ -104,9 +103,6 @@ def generate_header_chunk(file_descriptor,max_wavi,link_byte):
     return 80 #chunk length
 
 def generate_wavi_chunk(file_descriptor,wavi_list,max_wavi):
-    sample_list = []
-    for i,j in wavi_list:
-        sample_list.append(j)
     file_descriptor.write(b'\x77\x61\x76\x69') #wavi
     file_descriptor.write(b'\x00\x00') #zeros
     file_descriptor.write(b'\x15\x04')
@@ -120,7 +116,7 @@ def generate_wavi_chunk(file_descriptor,wavi_list,max_wavi):
     print('###')
     start_adress = ((2*max_wavi) + padding)
     for i in range(max_wavi):
-        if i in sample_list:
+        if i in wavi_list:
             pointer = start_adress
             file_descriptor.write(int.to_bytes(pointer,2,'little'))
             start_adress += 64
@@ -133,19 +129,18 @@ def generate_wavi_chunk(file_descriptor,wavi_list,max_wavi):
     smplpos = 0# sample position in memory (starts at 0)
     chk_len += (64 * len(wavi_list))
     for j in range(len(wavi_list)):
-        value,sample = wavi_list[j]
-        with open(f"SAMPLES/track_{value}_sample_{sample}.bin","rb") as wavi:
+        with open(f"SAMPLES/{wavi_list[j]}.bin","rb") as wavi:
             datas = wavi.read()
         loopbeg = int.from_bytes(datas[40:44],byteorder='little')
         looplen = int.from_bytes(datas[44:48],byteorder='little')
         print(datas[40:44])
         print(datas[44:48])
         incr = ((loopbeg+looplen)*4)# "length" of the sample
-        smplpos += incr # updated position in memory for the next sample.
         
         file_descriptor.write(datas[:36])
         file_descriptor.write(smplpos.to_bytes(4,'little'))
         file_descriptor.write(datas[40:64])
+        smplpos += incr # updated position in memory for the next sample.
     return 15 + chk_len #wavi chunk length (chk_len, with its +1 offset plus 15 bytes written prior, actually 16)
 
 def generate_prgi_chunk(file_descriptor,prgi_list):
@@ -158,18 +153,18 @@ def generate_prgi_chunk(file_descriptor,prgi_list):
     prgi_slots = 128
     start_adress = 256
     for i in range(prgi_slots):
-        found = False
-        for j in range(len(prgi_list)):
-            if i == prgi_list[j].preset_hex:
-                found = True
-                to_write = j
-                break
-            if i >=j :
-                break
-        if found == True:
+        # found = False
+        # for j in range(len(prgi_list)):
+        #     if i == prgi_list[j].preset_hex:
+        #         found = True
+        #         to_write = j
+        #         break
+        #     if i >=j :
+        #         break
+        if i < len(prgi_list):
             pointer = start_adress
             file_descriptor.write(int.to_bytes(pointer,2,'little'))
-            start_adress += prgi_list[to_write].len
+            start_adress += prgi_list[i].len
         else:
             file_descriptor.write(b'\x00\x00')
     #No padding since prgi_slots is 128
@@ -238,20 +233,24 @@ def main():
         sys.exit(1)
     preset_list = []
     for preset in configs['presets']:
-        preset_value = preset['number']
-        preset_track = preset['track']
-        iter = (preset_value,preset_track)
-        preset_list.append(iter)
+        preset_name = preset['name']
+        preset_list.append(preset_name)
+    # for preset in configs['presets']:
+    #     preset_value = preset['number']
+    #     preset_track = preset['track']
+    #     iter = (preset_value,preset_track)
+    #     preset_list.append(iter)
     prgi_list = [] 
     wavi_list = []
     for elem in preset_list:
-        track,value = elem
-        file_path = f'PRESETS/track_{value}_preset_{track}.bin'
+        file_path = f'PRESETS/{elem}.bin'
+        # track,value = elem
+        # file_path = f'PRESETS/track_{value}_preset_{track}.bin'
         with open(file_path,"rb") as preset:
             preset.read(1)
             datas = preset.read()
             data_len = len(datas)
-            iter = Preset(track,datas,data_len)
+            iter = Preset(datas,data_len)
             prgi_list.append(iter)
             fetcher = 113
             if data_len < 143:
@@ -260,8 +259,7 @@ def main():
             data_len -= 143
             while True:
                 sample = int.from_bytes(datas[fetcher:(fetcher+2)],'little')
-                iter = (value,sample)
-                wavi_list.append(iter) if iter not in wavi_list else wavi_list
+                wavi_list.append(sample) if sample not in wavi_list else wavi_list
                 if data_len == 0:
                     break
                 if data_len < 0:
@@ -274,7 +272,7 @@ def main():
 
     # for i in wavi_list:
     #     print(i)
-    prgi_list = sorted(prgi_list, key = lambda preset: preset.preset_hex)
+    # prgi_list = sorted(prgi_list, key = lambda preset: preset.preset_hex)
     first_kgrp = KeygroupEntry()
     first_kgrp.add_general_infos(id=b'\x00\x00',poly=b'\xFF',priority=b'\x08',vclow=b'\x00',vchigh=b'\xFF',unk50=b'\x00',unk51=b'\x00')
     second_kgrp = KeygroupEntry()
@@ -298,8 +296,8 @@ def main():
     kgrp_list.append(sixth_kgrp)
     kgrp_list.append(seventh_kgrp)
 
-    max_wavi = max(wavi_list, key = lambda tup:tup[1])[1]
-
+    max_wavi = max(wavi_list)
+    wavi_list = sorted(wavi_list)
     print(max_wavi)
     with open(args.SWD,"wb") as file:
         header_chunk_length = generate_header_chunk(file,max_wavi,link_byte)

@@ -2,6 +2,7 @@
 import argparse
 import math
 import sys
+import json
 from datetime import datetime
 
 
@@ -19,7 +20,8 @@ def parse_args():
 
     parser.add_argument("midi",help="The path to the MIDI file to translate")
     parser.add_argument("output",help="The path to the SMD file to write")
-    parser.add_argument("--check",help="checks if the format of the MIDI file is correct",action="store_true")
+    parser.add_argument("--linkbyte",help="value (in hex) of the 2 bytes that handles the SMD/SWD connection.",type=str, default= '0000')
+    parser.add_argument("--pmd-soundfont",help="Maps the preset used to the PMD soundfont. Maps to the GM soundfont otherwise.",action="store_true")
     return parser.parse_args()
 
 def parse_bytes(fd,bytes_count):
@@ -33,18 +35,16 @@ def parse_bytes(fd,bytes_count):
 
     """
     something = fd.read(bytes_count)
-#print(something)
-#if something is b'':
-#    raise Exception
     return int.from_bytes(something,byteorder="big",signed=False)
 
 
-def generate_header_chunk(file_descriptor,midi_source):
+def generate_header_chunk(file_descriptor,link_byte):
     file_descriptor.write(b'\x73\x6D\x64\x6C') #smdl
     file_descriptor.write(b'\x00\x00\x00\x00') #zeros
     file_descriptor.write(b'\x00\x00\x00\x00') #file length
-    file_descriptor.write(b'\x15\x04') 
-    file_descriptor.write(b'\x00\x00') #unknowns
+    file_descriptor.write(b'\x15\x04')
+    link_byte = int(link_byte,base=16) 
+    file_descriptor.write(link_byte.to_bytes(2,'big')) #link byte
     file_descriptor.write(b'\x00\x00\x00\x00') #zeros
     file_descriptor.write(b'\x00\x00\x00\x00') #zeros
     now = datetime.now()
@@ -77,7 +77,10 @@ def parse_header(file_descriptor):
     nb_tracks = int(first_line [6:].strip())
     second_line = file_descriptor.readline()
     tpqn = int(second_line [5:].strip())
-    return nb_tracks,tpqn
+    third_line = file_descriptor.readline()
+    song_duration = int(third_line [14:].strip())
+    file_descriptor.readline() # \n?
+    return nb_tracks,tpqn,song_duration
 
 
 
@@ -87,7 +90,7 @@ def generate_song_chunk(file_descriptor,midi_descriptor,nb_channel):
         file_descriptor.write(b'\x10\xFF\x00\x00')
         file_descriptor.write(b'\xB0\xFF\xFF\xFF')
         file_descriptor.write(b'\x01\x00')
-        nbtrks,tpqn = parse_header(midi_descriptor)
+        nbtrks,tpqn,song_duration = parse_header(midi_descriptor)
         #file_descriptor.write(b'\x30\x00') # usually 48 ticks per second. although not sure if correct everytime...
         file_descriptor.write(tpqn.to_bytes(2,'little')) # ticks per quarter note ????
         file_descriptor.write(b'\x01\xFF')
@@ -102,7 +105,7 @@ def generate_song_chunk(file_descriptor,midi_descriptor,nb_channel):
         file_descriptor.write(b'\x00\x08')
         file_descriptor.write(b'\x00\xFF\xFF\xFF')
         file_descriptor.write(b'\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF')
-        return nbtrks,tpqn
+        return nbtrks,tpqn,song_duration
 
 def add_wait_time(file,length,factor,last_pause,position):
     value = length
@@ -215,6 +218,95 @@ def calculate_bpm(micro_per_quartick): #MIDI uses microseconds per quarter tick
     bpm = 60/secs
     return int(bpm)
 
+
+GM_SOUNDFONT = {
+    0: "Acoustic Grand Piano", 1: "Bright Acoustic Piano", 2:"Electric Grand Piano", 3: "Honky-tonk Piano", 4:"Electric Piano 1", 
+    5: "Electric Piano 2", 6:"Harpsichord", 7: "Clavinet", 8:"Celesta", 9: "Glockenspiel", 10:"Music Box", 11: "Vibraphone", 12:"Marimba", 
+    13: "Xylophone", 14:"Tubular Bells", 15: "Dulcimer", 16:"Drawbar Organ", 17: "Percussive Organ", 18:"Rock Organ", 19: "Church Organ", 20:"Reed Organ", 
+    21: "Accordion", 22:"Harmonica", 23: "Tango Accordion", 24:"Acoustic Guitar (nylon)", 25: "Acoustic Guitar (steel)", 26:"Electric Guitar (jazz)", 27: "Electric Guitar (clean)", 28:"Electric Guitar (muted)", 
+    29: "Overdriven Guitar", 30:"Distortion Guitar", 31: "Guitar harmonics", 32:"Acoustic Bass", 33: "Electric Bass (fingered)", 34:"Electric Bass (picked)", 35: "Fretless Bass", 36:"Slap Bass 1", 
+    37: "Slap Bass 2", 38:"Synth Bass 1", 39: "Synth Bass 2", 40:"Violin", 41: "Viola", 42:"Cello", 43: "Contrabass", 44:"Tremolo Strings", 
+    45: "Pizzicato Strings", 46:"Orchestral Harp", 47: "Timpani", 48:"String Ensemble 1", 49: "String Ensemble 2", 50:"SynthStrings1", 51: "SynthStrings2", 52:"Choir Aahs", 
+    53: "Voice Oohs", 54:"Synth Voice", 55: "Orchestra Hit", 56:"Trumpet", 57: "Trombone", 58:"Tuba", 59: "Muted Trumpet", 60:"French horn", 
+    61: "Brass Section", 62:"SynthBrass 1", 63: "SynthBrass 2", 64:"Soprano Sax", 65: "Alto Sax", 66:"Tenor Sax", 67: "Baritone Sax", 68:"Oboe", 
+    69: "English Horn", 70:"Bassoon", 71: "Clarinet", 72:"Piccolo", 73: "Flute", 74:"Recorder", 75: "Pan Flute", 76:"Blown Bottle", 
+    77: "Shakuhachi", 78:"Whistle", 79: "Ocarina", 80:"Square Wave", 81: "Sawtooth wave", 82:"Calliope", 83: "Chiffer", 84:"Charang", 
+    85: "Voice Solo", 86:"Fifths", 87: "Bass + Lead", 88:"Fantasia", 89: "Warm", 90:"Polysynth", 91: "Choir Space Voice", 92:"Bowed Glass", 
+    93: "Metallic pro", 94:"Halo", 95: "Sweep", 96:"Rain", 97: "Soundtrack", 98:"Crystal", 99: "Atmosphere", 100:"Brightness", 
+    101: "Goblins", 102:"Echoes Drops", 103: "Sci-fi", 104:"Sitar", 105: "Banjo", 106:"Shamisen", 107: "Koto", 108:"Kalimba", 
+    109: "Bag pipe", 110:"Fiddle", 111: "Shanai", 112:"Tinkle Bell", 113: "Agogo", 114:"Steel Drums", 115: "Woodblock", 116:"Taiko Drum", 
+    117: "Melodic Tom", 118:"Synth Drum", 119: "Reverse Cymbal", 120:"Guitar Fret Noise", 121: "Breath Noise", 122:"Seashore", 123: "Bird Tweet", 124:"Telephone Ring", 
+    125: "Helicopter", 126:"Applause", 127: "Gunshot"
+
+}
+
+PMD_SOUNDFONT = {
+    0: "Piano", 1: "Piano Bass", 2:"Electric Piano", 3: "Tine E-Piano", 4:"FM E-Piano", 
+    5: "Harpsichord 1", 6:"Harpsichord 2", 7: "Celeste", 8:"Glockenspiel 1", 9: "Glockenspiel 2", 10:"Music Box", 11: "Vibraphone", 12:"Marimba", 
+    13: "Tubular Bells", 14:"Fantasia 1", 15: "Fantasia 2", 16:"Synth Mallet", 17: "Percussive organ", 18:"Synth Organ", 19: "Melodica", 20:"Finger Bass", 
+    21: "Pick Bass", 22:"J-Bass", 23: "Slap Bass", 24:"Bass Harmonics", 25: "Synth Bass 1", 26:"Synth Bass 2", 27: "Synth Bass 3", 28:"Nylon Guitar", 
+    29: "Steel Guitar", 30:"Mandolin", 31: "Overdriven Guitar", 32:"Distorted Guitar", 33: "Guitar Harmonics", 34:"Sitar", 35: "Banjo", 36:"Harp", 
+    37: "Cello", 38:"Bass Section", 39: "Violin 1", 40:"Violin 2", 41: "Violins", 42:"Viola", 43: "Viola Section", 44:"String Section", 
+    45: "Pizzicato Strings", 46:"Synth Strings 1", 47: "Synth Strings 2", 48:"Orchestral Hit", 49: "Choir Aahs", 50:"Solo Voice", 51: "Voice Tenor", 52:"Voice Oohs", 
+    53: "Trumpet Section", 54:"Solo Trumpet 1", 55: "Solo Trumpet 2", 56:"Muted Trumpet", 57: "Trombone", 58:"Tuba", 59: "Saxophone", 60:"Brass Section", 
+    61: "Brass 1", 62:"Brass 2", 63: "Brass 3", 64:"Brass 4", 65: "Horn Section", 66:"French Horn", 67: "French Horns 1", 68:"French Horns 2", 
+    69: "English Horn", 70:"Horns", 71: "Bass & Horn", 72:"Bassoon 1", 73: "Bassoon 2", 74:"Flute 1", 75: "Flute 2", 76:"Oboe 1", 
+    77: "Oboe 2", 78:"Clarinet", 79: "Hard Clarinet", 80:"Pan Flute", 81: "Recorder", 82:"Bagpipe", 83: "Ocarina", 84:"Synth Sine", 
+    85: "Synth Triangle 1", 86:"Synth Triangle 2", 87: "Synth Saw", 88:"Synth Square", 89: "Synth Saw/Triangle", 90:"Synth Ditorted", 91: "Synth 1", 92:"Synth 2", 
+    93: "Synth 3", 94:"Synth 4", 95: "Unused Synth", 96:"Timpani 1", 97: "Timpani 2", 98:"Steel Drum", 99: "Wood Block", 100:"Drop Echo", 
+    101: "Pitched Drum", 102:"Pitched Crash Cym", 103: "Pitched Cymbal", 104:"Pitched Tamburine", 105: "Pitched Shaker", 106:"Pitched Claves", 107: "FoggyForest Perc", 108:"BoulderQuarryPerc", 
+    109: "B&H Horn", 110:"B&H Bass", 111: "Fantasia(bgm051)", 112:"Fantasia(bgm108)", 113: "None", 114:"None", 115: "None", 116:"None", 
+    117: "None", 118:"None", 119: "None", 120:"OrigPercPitch1", 121: "OrigPercPitch2", 122:"None", 123: "None", 124:"None", 
+    125: "Drumkit(Guild)", 126:"Drumkit", 127: "Drumkit Panned"
+}
+
+PMD_SOUNDFONT2 = {
+    0: "Record Scratch", 1: "String Pad2var.", 2:"Sweeping Drum", 3: "E-Guitar Mix", 4:"Hard Pizzicato", 
+    5: "Oboe All Samples", 6:"French Horn 1+2", 7: "Full Orchestra", 8:"Piano Extended", 9: "Superstrings", 10:"Bongo Conga"
+}
+
+PMD_SOUNDFONT3 = {
+    0: "BassDrum-S", 1: "Bongo", 2:"Clap", 3: "CongaHi", 4:"CongaLo", 
+    5: "CongaMu", 6:"Cowbell", 7: "CrashCy1-S", 8:"CrashCy2-S", 9: "CrashCy3-S", 10:"Guiro", 11: "HiAgogo", 12:"HiHatClosed", 
+    13: "HiHatOpen", 14:"HiHatPedal", 15: "Kick", 16:"RecScratch-1", 17: "RecScratch-2", 18:"Rim Hit 1", 19: "Rim Hit 2", 20:"Shaker", 
+    21: "Shaker2", 22:"Shaker3", 23: "Snare-1", 24:"Snare-2", 25: "Snare-3", 26:"Snare-4", 27: "Snare-5", 28:"Snare-6", 
+    29: "Snare-7", 30:"Timbale", 31: "Tom", 32:"TriangleMute", 33: "TriangleOpen", 34:"unknDrum-1", 35: "unknDrum-2", 36:"unknDrum-3", 
+    37: "Taiko", 38:"unknDrum-5", 39: "unknDrum-6", 40:"unknDrum-S-1", 41: "unknDrum-S-2", 42:"unknDrum-S-3", 43: "unknDrum-S-4", 44:"Conga 2 hit 1", 
+    45: "Conga 2 hit 2", 46:"Conga 2 mute 1", 47: "Conga 2 mute 2", 48:"Tamburine 1", 49: "unknHat-2", 50:"Tamburine 2", 51: "Tamburine 3", 52:"unknHat-S", 
+    53: "unknKnock-1", 54:"Wood Block 1", 55: "Piccolo Snare", 56:"Slap 1", 57: "Slap 2", 58:"Wood Block 2", 59: "Clave", 60:"Whistle"
+}
+
+PMD_SOUNDFONT4 = {
+    0: "SFX Bubble 1", 1: "SFX Bubble 2", 2:"SFX Bubble 3", 3: "SFX Clock", 4:"SFX Crack 1", 
+    5: "SFX Crack 2", 6:"SFX Dojo", 7: "SFX DrkFtrChrd", 8:"SFX Droplet 1", 9: "SFX Droplet 2", 10:"SFX Eating", 11: "SFX Electro 1", 12:"SFX Electro 2", 
+    13: "SFX Electro 3", 14:"SFX Electro 4", 15: "SFX Fire 1", 16:"SFX Fire 2", 17: "SFX Fire Pop", 18:"SFX Harpsichord", 19: "SFX Hiss", 20:"SFX Magic 1", 
+    21: "SFX Magic 2", 22:"SFX Magic 3", 23: "SFX Magic 4", 24:"SFX Rustling", 25: "SFX Wind Gust", 26:"SFX Splash", 27: "SFX Swoosh", 28:"SFX Thunder", 
+    29: "SFX Tremor 1", 30:"SFX Tremor 2", 31: "SFX Tremor 3", 32:"SFX Tremor 4", 33: "SFX Tremor 5", 34:"SFX WaterR 1", 35: "SFX WaterR 2", 36:"SFX WaterR 3", 
+    37: "SFX WaterR 4", 38:"SFX WaterR 5", 39: "SFX WaterRSW 1", 40:"SFX WaterS 1", 41: "SFX WaterS 2", 42:"SFX WaterS 3", 43: "SFX WaterSR 1", 44:"SFX WaterSW 1", 
+    45: "SFX WaterW 1", 46:"SFX Wave or Wind 1", 47: "SFX Wave or Wind 2", 48:"SFX Wave or Wind 3", 49: "SFX Wave or Wind 4", 50:"SFX Wind 1", 51: "SFX Wind 2", 52:"SFX Wind 3", 
+    53: "SFX WindH 1", 54:"SFX WindH 2", 55: "SFX WindH 3", 56:"SFX WindH 4", 57: "SFX WindH 5", 58:"SFX WNoise 1", 59: "SFX WNoise 2", 60:"SFX Crack 3", 
+    61: "SFX Electro 5", 62:"SFX Electro 6", 63: "SFX Explosion", 64:"SFX Magic 5", 65: "SFX Magic 6", 66:"SFX Ringing Noise", 67: "SFX Thunder Far", 68:"SFX Tremor 5", 
+    69: "SFX Tremor 6", 70:"SFX TremOrFire 1", 71: "SFX TremOrFire 2", 72:"SFX unkn", 73: "SFX WaterRW 1", 74:"SFX WaterSR 2", 75: "SFX WaterSW 2", 76:"SFX WindH 1", 
+    77: "SFX WindH 1-1", 78:"SFX WNoise 3", 79: "SFX WNoise 4", 80:"SFX Brass5th"
+}
+PMD_SOUNDFONT5 = {
+    0: "Bagpipe 1-C2", 1: "Bagpipe 2-C3", 2:"Bagpipe 3-C4", 3: "Bassoon 1 1-C1", 4:"Bassoon 1 2-C2", 
+    5: "Bassoon 1 3-C3", 6:"Brass 2 1-C3", 7: "Brass 2 2-A4", 8:"Brass 2 3-F5", 9: "Brass 3 1-C4", 10:"Brass 3 2-C5", 11: "Choir Aahs 1-C3", 12:"Choir Aahs 2-G3", 
+    13: "Choir Aahs 3-G4", 14:"Clarinet 1-C3", 15: "Clarinet 2-C4", 16:"Clarinet 3-C5", 17: "E-Piano 1-C4", 18:"E-Piano 2-C5", 19: "Fantasia 1 1-G2", 20:"Fantasia 1 2-C3", 
+    21: "Fantasia 1 3-C4", 22:"Fantasia 1 4-C5", 23: "Fantasia 2 1-G2", 24:"Fantasia 2 2-G3", 25: "Fantasia 2 3-G4", 26:"Finger Bass 1-G0", 27: "Finger Bass 2-E1", 28:"Finger Bass 3-D2", 
+    29: "Flute 1 1-G3", 30:"Flute 1 2-F4", 31: "Flute 1 3-D#5", 32:"Flute 2 1-G3", 33: "Flute 2 2-F4", 34:"Harp 1-C2", 35: "Harp 2-C4", 36:"Harpsichrd 1 1-C3", 
+    37: "Harpsichrd 1 2-C4", 38:"Harpsichrd 1 3-C5", 39: "Harpsichrd 2 1-C3", 40:"Harpsichrd 2 2-C4", 41: "Harpsichrd 2 3-C5", 42:"Horns 1-B2", 43: "Horns 2-F3", 44:"Marimba 1-C4", 
+    45: "Marimba 2-C5", 46:"Music Box 1-C3", 47: "Music Box 2-C4", 48:"Nylon Guitar 1-C2", 49: "Nylon Guitar 2-C4", 50:"Oboe 1 1-C#3", 51: "Oboe 1 2-E4", 52:"Oboe 2 1-C4", 
+    53: "Oboe 2 2-C5", 54:"Pan Flute 1-C3", 55: "Pan Flute 2-C4", 56:"Pan Flute 3-C5", 57: "Piano 1-F#2", 58:"Piano 2-F#3", 59: "Piano 3-F#4", 60:"Pick Bass 1-D0", 
+    61: "Pick Bass 2-D1", 62:"Pizz Strings 1-A1", 63: "Pizz Strings 2-F#", 64:"Pizz Strings 3-C3", 65: "Pizz Strings 4-C4", 66:"Sitar 1-D2", 67: "Sitar 2-D3", 68:"Steel Guitar 1-C2", 
+    69: "Steel Guitar 1-D3", 70:"String Sec. 1-C2", 71: "String Sec. 2-C3", 72:"String Sec. 3-C4", 73: "Syn Mallet 1-C1", 74:"Syn Mallet 2-C4", 75: "Syn String 1 1-C1", 76:"Syn String 1 2-C2", 
+    77: "Syn String 1 3-E3", 78:"Syn String 1 4-C4", 79: "Syn String 1 5-C5", 80:"Synth 1 1-C2", 81: "Synth 1 2-C3", 82:"Synth 2 1-C3", 83: "Synth 2 2-C4", 84:"Synth 2 3-C5", 
+    85: "Trombone 1-G1", 86:"Trombone 2-E2", 87: "Trombone 3-F3", 88:"Tuba 1-A0", 89: "Tuba 2-G1", 90:"Tuba 3-C2", 91: "Tubular Bell 1-C3", 92:"Tubular Bell 2-C3", 
+    93: "UnusedSynth 1-C1", 94:"UnusedSynth 2-C3", 95: "Vibraphone 1-C4", 96:"Vibraphone 2-C5", 97: "Violin 1 1-C#3", 98:"Violin 1 2-G3", 99: "Violin 1 3-G4", 100:"Violin 2 1-G3", 
+    101: "Violin 2 2-G4", 102:"Voice Oohs 1-C2", 103: "Voice Oohs 3-A3", 104:"Voice Oohs 3-C3"
+}
+
+
 SOUNDFONT = {
     0:0x1f, 1:-1, 2:-1, 3:-1, 4:-1, 5:-1, 6:0x0B, 7:-1, 8:-1, 9:-1, 10:-1, 11:-1,
     12 :0, 13:0, 14:0, 15:0x0F, 16:0, 17:-1, 18:0, 19:0x1f, 20:0, 21:0, 22:0, 23:0x17,
@@ -263,7 +355,7 @@ NOTES = {
 
 EVENTS = {  0x90: 0, 0x91: 1, 0x92 : 1, 0x93: 2,
             0x94: 3, 0x95 : 1, 0x98: 0, 0x99: 0,
-            0xA0 : 1, 0xA1: 1, 0xA4: 1, 0xA5 : 1,# SetTempo is intentionnaly putted twice here
+            0xA0 : 1, 0xA1: 1, 0xA4: 1, 0xA5 : 1,# SetTempo is intentionnaly put twice here
             0xAB: 0, 0xAC: 1, 0xCB : 0, 0xD7: 2,
             0xE0: 1, 0xE3: 1,0xE8 : 1, 0xF8: 0,
     # Unknown but used
@@ -325,8 +417,9 @@ def convert_note(file,midi_note,current_octave,position):
         position += 2
         return position,note,2,octave
 
-def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
-    print(tpqn)
+def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn,link_byte,programs_list,pmd_flag,song_duration):
+    current_bank = 0
+    #print(tpqn)
     smb_descriptor.write(b'\x74\x72\x6B\x20') # trk
     smb_descriptor.write(b'\x00\x00\x00\x01')
     smb_descriptor.write(b'\x04\xFF\x00\x00')
@@ -353,7 +446,7 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
 
     # midi_descriptor.readline()
     # midi_descriptor.readline()
-    line = midi_descriptor.readline()# \n
+    # line = midi_descriptor.readline()# \n
     master_clock = 0
     while(True):
         #print(last_pause)
@@ -361,7 +454,7 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
         line = midi_descriptor.readline()
         if len(line) == 0 or line == '\n':
             print(f'stopped by {line}')
-            break;
+            break
         # if line == "\n":
         #     midi_descriptor.readline()
         #     midi_descriptor.readline()
@@ -379,6 +472,9 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
         position,last_pause = add_wait_time(smb_descriptor,length,factor,last_pause,position)
         instruction = parts[1]
         match instruction:
+            case "LoopPoint":
+                smb_descriptor.write(b'\x99')
+                position += 1
             case "MetaMessage":
                 match parts[2][5:]: # type
                     # case 1:
@@ -417,16 +513,55 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
                         value = int(parts[3][9:])
                         smb_descriptor.write(value.to_bytes(1,'little'))
                         position += 2
-            case "ProgramChange":
-
-                smb_descriptor.write(b'\xA9\x78\xAA\x00') # mandatory somehow?
+            case "BankSelect":
+                current_bank = int(parts[2][5:])
+            case "InstrChange":
+                first_byte = int(link_byte[:2],base=16)
+                second_byte = int(link_byte[2:],base=16)
+                smb_descriptor.write(b'\xA9')
+                smb_descriptor.write(second_byte.to_bytes(1,'little'))
+                #smb_descriptor.write(b'\xA9\x78\xAA\x00') # mandatory somehow?
+                smb_descriptor.write(b'\xAA')
+                smb_descriptor.write(first_byte.to_bytes(1,'little'))
                 position += 4
                 smb_descriptor.write(b'\xAC') # SetProgram
                 value = int(parts[2][18:])
-                swd_soundfont =SOUNDFONT.get(value)
+
+                if pmd_flag is True: # "soundfont flag is set"
+                    match current_bank:
+                        case 0:
+                            program_name=PMD_SOUNDFONT.get(value)
+                        case 1:
+                            program_name=PMD_SOUNDFONT2.get(value)
+                        case 2:
+                            program_name=PMD_SOUNDFONT3.get(value)
+                        case 3:
+                            program_name=PMD_SOUNDFONT4.get(value)
+                        case 4:
+                            program_name=PMD_SOUNDFONT5.get(value)
+                        case _:
+                            print("A bank value set in the file does not match with the PMD soundfont.\nPerhaps the soundfont option was added by mistake.\n Please try again without that option.")
+                            sys.exit(1)
+                else:
+                    #swd_soundfont =SOUNDFONT.get(value)
+                    program_name = GM_SOUNDFONT.get(value)
+                
+                swd_soundfont = next((i for i in range(len(programs_list)) if programs_list[i][1] == program_name),len(programs_list))
+                print(swd_soundfont)
+                nawa = (current_bank,program_name)
+                if programs_list.count(nawa) == 0:
+                    programs_list.append(nawa)
+                # add to a list(set?) of presets this one (bank,soundfont) bank defaults to 0.
+                # if already in set: -> known by getting tuple in set position?
+                #   then write the position the tuple is in.
+                #   In theory, the number will go from 0 to n for n presets in the song.
+                # Since the order is from channel 0 to 16, all should be good when:
+                #   writing a json format holding:
+                #   preset objects
+                #   specify on what channels the presets are used on.
+                #   channel of the SMD unfortunately...
                 smb_descriptor.write(swd_soundfont.to_bytes(1,'little'))
                 position+=2
-                #continue #Technically SWD???
             case "PitchBend":
                 least_bytes = int(parts[2][12:])
                 most_bytes = int(parts[3][11:])
@@ -449,7 +584,7 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
 
 
                 key_down = int(parts[4][9:])#int(math.ceil(int(parts[4][9:])/factor))
-                print('###',int(parts[4][9:]))
+                #print('###',int(parts[4][9:]))
                 # key_down = key_down+1
                 #print(key_down)
                 if len(hex(key_down))> 8: # That's a problem (> 0xyyyyyy)
@@ -482,12 +617,18 @@ def generate_first_track(smb_descriptor,midi_descriptor,cpt,tpqn):
             case _:
                 print(f"parse error: {instruction} instruction not recognised")
     #print(test)
+    length = song_duration - master_clock
+    if length < 0:
+        print('error: the song duration given is less than the one found in the tracks.')
+        sys.exit(1)
+    position,last_pause = add_wait_time(smb_descriptor,length,factor,last_pause,position)
     smb_descriptor.write(b'\x98')
     position += 1
     padding = (4 - (position % 4))% 4
     for i in range(padding):
         smb_descriptor.write(b'\x98')
     print("done.")
+    return programs_list
 
 def generate_eoc_chunk(file):
     file.write(b'\x65\x6F\x63\x20') # trk
@@ -497,16 +638,28 @@ def generate_eoc_chunk(file):
 
 def main():
     args = parse_args()
+    if len(args.linkbyte) != 4:
+        print("option error: link byte is not of size 4.")
+        sys.exit(1)
+    try:
+        hex(int(args.linkbyte, base=16))
+    except Exception as e:
+        print("option error: link byte is not of hexadecimal format")
+        print(e)
+        sys.exit(1)
+
+
     with open(args.output,"wb") as file:
         
         with open(args.midi,"r") as midi:
             data = midi.read()
             nb_channel = 16
         with open(args.midi,"r") as midi:
-            generate_header_chunk(file,midi)
-            nbrtrk,tpqn =generate_song_chunk(file,midi,nb_channel)
-            for i in range(17):
-                generate_first_track(file,midi,i,tpqn) # tempo???
+            generate_header_chunk(file,args.linkbyte)
+            nbrtrk,tpqn,song_duration =generate_song_chunk(file,midi,nb_channel)
+            programs_list = []
+            for i in range(nbrtrk):#hmmmm....
+                programs_list = generate_first_track(file,midi,i,tpqn,args.linkbyte,programs_list,args.pmd_soundfont,song_duration) # tempo???
             generate_eoc_chunk(file)
     with open(args.output, 'rb') as patch:
         length = 0
@@ -560,6 +713,17 @@ def main():
             padding = (4 - (pos % 4))% 4
             parse_bytes(fix_length,padding)
             pos += padding
+    test_list = []
+    # programs_list = list(dict.fromkeys(programs_list))
+    for elem in programs_list:
+        bank,soundfont = elem
+        test_dict = {"name" : soundfont}
+        test_list.append(test_dict)
+        print(f'bank {bank}, preset {soundfont}')
+    json_output = {"link_byte": args.linkbyte,
+    "presets": test_list}
+    with open("preset_output.json","w") as json_file:
+        json.dump(json_output, json_file, indent=4)
 if __name__ == "__main__":
     main()
 

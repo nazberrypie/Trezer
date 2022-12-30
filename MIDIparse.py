@@ -17,6 +17,7 @@ def parse_args():
     )
 
     parser.add_argument("midi",help="The path to the MIDI file to parse")
+    parser.add_argument("--loop",help="Makes the song loop at a specific time in ticks(?)",default=0)
     parser.add_argument("--check",help="checks if the format of the MIDI file is correct",action="store_true")
     return parser.parse_args()
 
@@ -122,7 +123,26 @@ def add_processed_note(key_note,velocity,channel,master_clock,prepro_stack):
     note = [starttime,key_note,velocity,duration,channel]
     prepro_stack.append(note)
 
-def parse_mtrk_event(fd,midi_channel,prepro_stack):
+def make_bank_select(value,channel,master_clock,bank_stack):
+    endtime = master_clock
+    for i in bank_stack:
+        if i[2] == channel: # hoooopefully that's enough.
+            duration = endtime - i[0]
+            bank_value = (i[1] << 7) + value
+            ret = i
+            ret[2] = bank_value
+            ret[3] = duration
+            bank_stack.remove(i)
+            return ret
+    print("warning: A Bank Select has not found it's sibling in the processed controller changes.")
+
+def add_bank_select(value,channel,master_clock,bank_stack):
+    starttime = master_clock
+    duration = 0
+    bank = [starttime,value,channel,duration]
+    bank_stack.append(bank)
+
+def parse_mtrk_event(fd,midi_channel,prepro_stack,bank_stack):
     """ reads from the file descriptor an MTrk event
         It sequentially read first a delta-time and then
         a corresponding sub-event until the end of file (0xFF2F)
@@ -133,7 +153,6 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
         list(list(string)) -> 16* list string, one for each channel
     """
     master_clock = 0
-    test = 0
     last_channel = 0
     last_event = "NoteOff"
     while(True):
@@ -174,7 +193,7 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
                     event = "MIDI Channel Prefix"
                 case 0x2F: # End of Track
                     parse_bytes(fd,1) # read 0x00
-                    return midi_channel,prepro_stack
+                    return midi_channel,prepro_stack,bank_stack
                 case 0x51:
                     event = "Set Tempo"
                 case 0x54:
@@ -191,22 +210,16 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
             meta_data = parse_bytes(fd,meta_length)
             if string_flag == True:
                 meta_data = hex(meta_data)
-                #print("###")
-                #print(meta_data)
-                #meta_data = bytearray.fromhex(meta_data[2:]).decode()
-            #track_length -= meta_length
             value = 16 if event == 'Set Tempo' or event == 'Time Signature' or event == 'KeySignature' else 0
             midi_channel[value].append(f"starttime {master_clock}, MetaMessage, type {event}, data {meta_data}")
         elif event_type == 0xF0 or event_type == 0xF7: #F0 / F7 -> Sysex-event
             sysex_length = parse_length(fd)
             sysex_data = parse_bytes(fd,sysex_length)
-            #track_length -=sysex_length
             midi_channel[0].append(f"starttime {master_clock}, Sysex event, data {sysex_data}")
         elif ((event_type >> 4) == 0x8): # 1000nnnn -> Note Off
             key_note = parse_bytes(fd,1)
             velocity = parse_bytes(fd,1)
             channel = (event_type & 0xF)
-            #track_length -=2
             play_note = make_play_note(key_note,prepro_stack,channel,master_clock)
             if play_note is not None:
                 (starttime,key,velocity,duration,channel) = play_note
@@ -217,7 +230,6 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
             key_note = parse_bytes(fd,1)
             velocity = parse_bytes(fd,1)
             channel = (event_type & 0xF)
-            #track_length -=2
             if velocity == 0:
                 play_note= make_play_note(key_note,prepro_stack,channel,master_clock)
                 if play_note is not None:
@@ -240,15 +252,23 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
             key_note = parse_bytes(fd,1)
             velocity = parse_bytes(fd,1)
             #track_length -=2
-            midi_channel[(event_type & 0xF)].append(f"starttime {master_clock}, ControlChange, key_note {key_note}, velocity {velocity}")
+            if key_note == 0: # Bank select (MSB)
+                add_bank_select(velocity,(event_type & 0xF),master_clock,bank_stack)
+            elif key_note == 32:#Bank select (LSB)
+                bank = make_bank_select(velocity,(event_type & 0xF),master_clock,bank_stack)
+                if bank is not None:
+                    (starttime,value,channel,duration) = bank
+                midi_channel[(event_type & 0xF)].append(f"starttime {master_clock}, BankSelect, bank {value}")
+            else:
+                midi_channel[(event_type & 0xF)].append(f"starttime {master_clock}, ControlChange, key_note {key_note}, velocity {velocity}")
             last_event = "ControlChange"
             last_channel = event_type & 0xF # not sure if event_type is the same after if clause
         elif ((event_type >> 4) == 0xC): #1100nnnn -> Program Change
             controller_number = parse_little_bytes(fd,1)
             #parse_bytes(fd,1) # thebyte is unused???
             #track_length -=2
-            midi_channel[(event_type & 0xF)].append(f"starttime {master_clock}, ProgramChange, controller_number {controller_number}")
-            last_event = "ProgramChange"
+            midi_channel[(event_type & 0xF)].append(f"starttime {master_clock}, InstrChange, controller_number {controller_number}")
+            last_event = "InstrChange"
             last_channel = event_type & 0xF # not sure if event_type is the same after if clause
         elif ((event_type >> 4) == 0xD): #1101nnnn -> channel Aftertouch
             pressure_value = parse_bytes(fd,1)
@@ -290,11 +310,18 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
                     second_part = parse_bytes(fd,1)
                     midi_channel[last_channel].append(f"starttime {master_clock}, Aftertouch, key_note {first_part}, velocity {second_part}")
                 case "ControlChange":
-                    #track_length -=1
                     second_part = parse_bytes(fd,1)
-                    midi_channel[last_channel].append(f"starttime {master_clock}, ControlChange, key_note {first_part}, velocity {second_part}")
-                case "ProgramChange":
-                    midi_channel[last_channel].append(f"starttime {master_clock}, ProgramChange, controller_number {first_part}")
+                    if first_part == 0: # Bank select (MSB)
+                        add_bank_select(second_part,last_channel,master_clock,bank_stack)
+                    elif first_part == 32:#Bank select (LSB)
+                        bank = make_bank_select(second_part,last_channel,master_clock,bank_stack)
+                        if bank is not None:
+                            (starttime,value,channel,duration) = bank
+                            midi_channel[last_channel].append(f"starttime {master_clock}, BankSelect, bank {value}")
+                    else:
+                        midi_channel[last_channel].append(f"starttime {master_clock}, ControlChange, key_note {first_part}, velocity {second_part}")
+                case "InstrChange":
+                    midi_channel[last_channel].append(f"starttime {master_clock}, InstrChange, controller_number {first_part}")
                 case "Channel Aftertouch":
                     midi_channel[last_channel].append(f"starttime {master_clock}, Channel Aftertouch, pressure_value {first_part}")
                 case "PitchBend":
@@ -306,7 +333,7 @@ def parse_mtrk_event(fd,midi_channel,prepro_stack):
             sys.exit(1)
 
 
-def parse_track(file_descriptor,position,midi_channel,prepro_stack):
+def parse_track(file_descriptor,position,midi_channel,prepro_stack,bank_stack):
     """ reads from the MIDI file the only track in it (intended for format 0 MIDI files)
     Arguments:
         file_descriptor(BufferedReader): the file descriptor
@@ -324,8 +351,8 @@ def parse_track(file_descriptor,position,midi_channel,prepro_stack):
     track_length = parse_bytes(file_descriptor,4)
     # print(track_length)
     position +=8
-    midi_channel,prepro_stack = parse_mtrk_event(file_descriptor,midi_channel,prepro_stack)
-    return midi_channel,prepro_stack
+    midi_channel,prepro_stack,bank_stack = parse_mtrk_event(file_descriptor,midi_channel,prepro_stack,bank_stack)
+    return midi_channel,prepro_stack,bank_stack
     # cpt = 0
     # for channel in midi_channel:
     #     if len(channel) != 0:
@@ -334,7 +361,35 @@ def parse_track(file_descriptor,position,midi_channel,prepro_stack):
     #             print(statements)
     #     cpt += 1
 
+def get_max_duration(instruction):
+    parts = instruction.split(', ')
+    starttime = int(parts[0][10:])
+    match parts[1]:
+        case "PlayNote":
+            key_down = int(parts[4][9:])
+        case _:
+            key_down = 0
+    return starttime + key_down
 
+def priority(instruction):
+    parts = instruction.split(', ')
+    match parts[1]:
+        case "LoopPoint":
+            return 4
+        case "Sysex Event":
+            return 0
+        case "ControlChange":
+            return 2
+        case "BankSelect":
+            return 1
+        case "InstrChange":
+            return 3
+        case "PitchBend":
+            return 5
+        case "PlayNote":
+            return 6
+        case _:
+            return 7
 
 def main():
     args = parse_args()
@@ -344,6 +399,8 @@ def main():
     if not os.path.exists(args.midi):
         print(f"File {args.midi} is not found")
         sys.exit(1)
+    if args.loop != 0:
+        print("error: loop flag value is not supported yet.")
     with open(args.midi,"rb") as file:
         magic = file.read(4)
         # print(magic)
@@ -356,12 +413,15 @@ def main():
             position += 10
             midi_channel = [ [],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]] # 17 lists: one for each 16 channel + the 17th -> stores Tempo parameters.
             prepro_stack = []
+            bank_stack = []
             # cpt = 0
             # for channel in midi_channel:
             #     if len(channel) != 0:
             #         print(f"###########\n#channel {cpt}:\n############")
             for i in range(nb_tracks):
-                midi_channel,prepro_stack = parse_track(file,position,midi_channel,prepro_stack)
+                midi_channel,prepro_stack,bank_stack = parse_track(file,position,midi_channel,prepro_stack,bank_stack)
+                for z in bank_stack:
+                    print(z)
                 #print("\n\n NEW_TRACK \n\n")
             nb_trks = 0
             for elem in midi_channel:
@@ -369,19 +429,32 @@ def main():
                     nb_trks += 1
             print(f'ntrks {nb_trks}')
             print(f'tpqn {division}')
-            print('')
-            for statements in midi_channel[16]:
-                print(statements)
+            song_duration = 0
             for i in range(16):
                 list = []
+                if len(midi_channel[i]) > 0:
+                    midi_channel[i].append(f'starttime {args.loop}, LoopPoint, ')
                 for statements in midi_channel[i]:
                     parts = statements.split(', ')
                     starttime_value = int(parts[0][10:])
                     list.append(starttime_value)
+                #midi_channel[i] = sorted(midi_channel[i], key= priority)
                 ordered_list = zip(list,midi_channel[i])
                 midi_sorted = [x for _, x in sorted(ordered_list)]
                 midi_channel[i] = midi_sorted
-
+                # for elem in midi_channel[i]: # might add the loop to all non-empty tracks. Perhaps loop point needs to differ between tracks as well (which is not the case in this implem.)
+                #     parts = elem.split(', ')
+                #     starttime_value = int(parts[0][10:])
+                #     if starttime_value > args.loop: # Takes the first instruction of time higher then the looppoint flag
+                #         place = midi_channel[i].index(elem)
+                #         midi_channel[i].insert(place ,f'starttime {args.loop}, LoopPoint, ') # place the loop point instruction just prior to that one.
+                #         break
+                if len(midi_channel[i])>0:
+                    song_duration = max(song_duration,get_max_duration(midi_channel[i][-1]))
+            print(f'song_duration {song_duration}')
+            print('')
+            for statements in midi_channel[16]:
+                print(statements)
             for j in range(16):
                 if len(midi_channel[j]) != 0:
                     print('')
