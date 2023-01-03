@@ -127,3 +127,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Custom
+SAMPLES/*
+PRESETS/*
+MIDI_TXT/*
+SMDS/*
+SWDS/*
+BGM
