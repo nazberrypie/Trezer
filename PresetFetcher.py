@@ -140,11 +140,11 @@ def main():
     # pick_list: bgm file numbers needed for fetching
     pick_list = set()
     for key in FETCH_SOUNDFONT.keys():
-        filenum  = key[1]
+        filenum  = key[0]
         if filenum >=0:
             pick_list.add(filenum)
     for key in FETCH_SOUNDFONT4.keys():
-        filenum = key[1]
+        filenum = key[0]
         if filenum >=0:
             pick_list.add(filenum)
 

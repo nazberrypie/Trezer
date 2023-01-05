@@ -89,7 +89,7 @@ This option must be provided with a value: at what time should the song loop bac
 python MIDIparse.py best_music.mid music_name --loop 1234
 ```
 
-With this command, when the song finishes its first read (from 00:00 to the end) the song will loop back 1234 ticks from the start of the song.
+With this command, when the song finishes its first read (from 00:00 to the end) the song will loop back 1234 ticks after the start of the song.
 
 ![](img/LoopPoint.png)
 
@@ -117,10 +117,10 @@ The directory `bgmXXXX` will be located in the SMDS directory.
 
 #### Preset output
 
-Upon executing MIDIconvert, a .smd and a .json file will be generated.
-The .json file will hold a list of presets used in the .smd file generated. It will also hold the value of the link byte.
+Upon executing MIDIconvert, a `.smd` and a `.json` file will be generated.
+The `.json` file will hold a list of presets used in the `.smd` file generated. It will also hold the value of the link byte.
 
-The list of presets holds names, which are the name of the instrument that will be used by the .smd file.
+The list of presets holds names, which are the name of the instrument that will be used by the `.smd` file.
 
 ![](img/preset_output.jpg)
 
@@ -130,9 +130,9 @@ Available instruments and their names can be found in the PRESETS directory. The
 
 #### The `--linkbyte` option
 
-The link byte is the name given to the two bytes that links a .smd and .swd file. This value must be shared by these two files for the song to work.
+The link byte is the name given to the two bytes that links a `.smd` and `.swd` file. This value must be shared by these two files for the song to work.
 
-the `--linkbyte` option allows you to change the value used for the .smd generated, and the value given in the .json file
+the `--linkbyte` option allows you to change the value used for the `.smd` generated, and the value given in the `.json` file
 
 ```console
 python MIDIconvert.py music_name bgmXXXX --linkbyte '1f2d'
@@ -146,7 +146,7 @@ After execution, a `preset_output.json` file is given.
 The list of presets that will be used are given with defaults names.
 The names in questions are from the GM MIDI soundfont.
 
-The option `--pmd_soundfont` will change the names given in the .json file to match the PMD soundfont name convention.
+The option `--pmd-soundfont` will change the names given in the `.json` file to match the PMD soundfont name convention.
 
 ![](img/preset_option.jpg)
 
@@ -159,9 +159,9 @@ If the MIDI file used the PMD soundfont as a base, hopefully this option will gi
 
 ### Step 4: SWDgen
 
-After editing the `preset_output.json` to your liking, the enxt step is to make a .swd file from it.
+After editing the `preset_output.json` to your liking, the enxt step is to make a `.swd` file from it.
 
-To do so, execute `SWDgen.py` with the name of the .smd file as argument
+To do so, execute `SWDgen.py` with the name of the `.smd` file as argument
 
 ```console
 python Swdgen.py bgmXXXX
@@ -169,7 +169,7 @@ python Swdgen.py bgmXXXX
 
 SWDgen will browse the `bgmXXXX` directory (located in SMDS/), will read the `preset_output.json` of this directory and will create `bgmXXXX.swd` on that directory.
 
-Note that the presets added to this .swd file should be the one named on the .json file.
+Note that the presets added to this `.swd` file should be the one named on the `.json` file.
 
 As of now, many presets from the PMD soundfont are still not available. A quick glance at the PRESETS directory should tell you if it is added or not.
 
@@ -197,11 +197,11 @@ python MIDIconvert.py fancy_name bgm0016
 ```
 Will create a directory bgm0016 (in SMDS directory) with inside:
 
-- bgm0016.swd
-- preset_output.json
+- `bgm0016.swd`
+- `preset_output.json`
 
 
-4. Edit the presets names from .json file
+4. Edit the presets names from `.json` file
 
 (preset names should match the PMD soundfont/the names in PRESETS directory)
 
@@ -212,20 +212,20 @@ python SWDgen.py bgm0016
 Will make `bgm0016.swd` in the bgm0016 directory based on `preset_output.json` of the bgm0016 directory
 
 
-6. Then, add bgm0016.smd and bgm0016.swd to the BGM directory (the EoS one)
+6. Then, add `bgm0016.smd` and `bgm0016.swd` to the BGM directory (the EoS one)
 7. Repack the ROM.
 BGM 16 is now the song that you added
 8. Cross your fingers and listen to it. Then either:
-- Edit the .json and repeat steps 5 to 8 until it sounds good
+- Edit the `.json` and repeat steps 5 to 8 until it sounds good
 - Be sad because the game crashed.
 
 Both `.smd` and `swd` should have the same name and of the form `bgmXXXX` to work in EoS (I think).
 
 ## Limitations
 
-1. The .swd can only use the PMD soundfont available in the PRESETS directory.
+1. The `.swd` can only use the PMD soundfont available in the PRESETS directory.
 2. The presets used are fixed on parameters like volume and samples used.
 3. Many presets are still missing or are incomplete
 4. MIDI files of format 2 is not supported
 5. Loops are still wacky (Some Instruments does not resets)
-6. .swd files are fairly unstable and prone to crash
+6. `.swd` files are fairly unstable and prone to crash
