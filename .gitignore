@@ -129,9 +129,4 @@ dmypy.json
 .pyre/
 
 # Custom
-SAMPLES/*
-PRESETS/*
-MIDI_TXT/*
-SMDS/*
-SWDS/*
 BGM
